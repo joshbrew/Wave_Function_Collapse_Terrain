@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wave Function Collapse Example</title>
+    <style>
+        canvas {
+            display: block;
+            margin: 0 auto;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="mapCanvas"></canvas>
+    <script>
+        /*
+        Wave Function Collapse Algorithm
+        This script implements a procedural generation technique called Wave Function Collapse (WFC) to generate a map.
+        Steps:
+        1. Define constants for tile colors, adjacency rules, height ranges, and grid settings.
+        2. Initialize the grid with probabilities influenced by a Perlin (or [insert noise function here]) noise gradient.
+        3. Create helper functions to handle grid indexing, probability normalization, and tile collapsing.
+        4. Implement a depth-first search to initialize the grid by collapsing some tiles and propagating constraints.
+        5. Refine the grid using a convolution step.
+        6. Render the final grid onto a canvas.
+        */
+
+        // Define the colors for each tile type
+        const TILE_COLORS = {
+            'ocean': 'blue',
+            'freshwater': 'royalblue',
+            'beach': 'yellow',
+            'grass': 'green',
+            'hill': 'brown',
+            'mountain': 'gray',
+            'glacier': 'lightblue'
+        };
+
+        // Define the rules for tile adjacency probabilities
+        const RULES = {
+            'ocean': { 'ocean': 0.99, 'beach': 0.01 },
+            'freshwater': { 'freshwater': 0.19, 'beach': 0.8, 'ocean': 0.01 },
+            'beach': { 'ocean': 0.01, 'beach': 0.3, 'freshwater': 0.01, 'grass': 0.3 },
+            'grass': { 'beach': 0.1, 'grass': 0.5, 'hill': 0.3, 'freshwater': 0.1 },
+            'hill': { 'grass': 0.4, 'hill': 0.4, 'mountain': 0.2 },
+            'mountain': { 'hill': 0.5, 'mountain': 0.4, 'glacier': 0.1 },
+            'glacier': { 'mountain': 0.7, 'glacier': 0.3 }
+        };
+
+        // Define the height ranges for each tile type
+        const TILE_HEIGHT_RANGES = {
+            'ocean': { min: -1.0, max: 0.0 },
+            'beach': { min: 0.0, max: 0.3 },
+            'grass': { min: 0.3, max: 0.6 },
+            'hill': { min: 0.6, max: 0.7 },
+            'mountain': { min: 0.7, max: 0.9 },
+            'glacier': { min: 0.75, max: 1.0 },
+            'freshwater': { min: -1.0, max: 1.0 } // Freshwater can appear at any height
+        };
+
+        // Get the list of all tile types
+        const TILES = Object.keys(TILE_COLORS);
+
+        // Define grid size and tile resolution
+        const GRID_SIZE = 200; // The grid will be 200x200 tiles
+        const TILE_RESOLUTION = 4; // Each tile will be 4x4 pixels
+        const DEFAULT_TILE = 'grass'; // Default tile type
+
+        // Define directions for neighbors (8 directions)
+        const directions = [
+            [0, -1], // up
+            [1, 0],  // right
+            [0, 1],  // down
+            [-1, 0], // left
+            [1, -1], // top-right
+            [1, 1],  // bottom-right
+            [-1, 1], // bottom-left
+            [-1, -1] // top-left
+        ];
+
+        // Initialize the grid with equal probabilities for each tile type
+        // Each cell in the grid is a Float32Array of probabilities for each tile type
+        const grid = new Array(GRID_SIZE * GRID_SIZE).fill(null).map(() => new Float32Array(TILES.length).fill(1));
+
+        // Pre-generate the indices array
+        const indices = [];
+        for (let x = 0; x < GRID_SIZE; x++) {
+            for (let y = 0; y < GRID_SIZE; y++) {
+                indices.push([x, y]); // Add the index to the list
+            }
+        }
+
+        // Convert (x, y) coordinates to a single index for the grid array
+        function index(x, y) {
+            return x + y * GRID_SIZE; // Return the linear index for the (x, y) coordinates
+        }
+
+        // Initialize the probabilities for each cell based on Perlin noise
+        // This step sets up initial conditions influenced by terrain height (Perlin noise)
+        function initializeProbabilities() {
+            const perlin = new PerlinNoise(); // Create a new PerlinNoise instance
+            for (let x = 0; x < GRID_SIZE; x++) {
+                for (let y = 0; y < GRID_SIZE; y++) {
+                    const value = perlin.noise(x / 50, y / 50, 0); // Generate Perlin noise value
+
+                    const idx = index(x, y); // Get the linear index for (x, y)
+                    const options = new Float32Array(TILES.length).fill(1); // Initialize options with equal probabilities
+
+                    // Adjust probabilities based on Perlin noise value and tile height ranges
+                    TILES.forEach((tile, i) => {
+                        const max = TILE_HEIGHT_RANGES[tile].max;
+                        const min = TILE_HEIGHT_RANGES[tile].min;
+                        if (value >= min && value <= max) {
+                            // Probability is 1 if within the range
+                        } else if ((value > 0 && value < min && value > min - 0.1) || (value > max && value < max + 0.1)) {
+                            options[i] = 0.75; // Slightly reduce probability
+                        } else if ((value > 0 && value < min && value > min - 0.2) || (value > max && value < max + 0.2)) {
+                            options[i] = 0.5; // Reduce probability more
+                        } else if ((value > 0 && value < min && value > min - 0.3) || (value > max && value < max + 0.3)) {
+                            options[i] = 0.25; // Further reduce probability
+                        } else {
+                            options[i] = 0; // Set probability to 0 if out of range
+                        }
+                    });
+                    grid[idx] = normalizeOptions(options); // Set the options for the cell
+                }
+            }
+        }
+
+        // Normalize the options so that their sum equals 1
+        function normalizeOptions(options) {
+            const total = options.reduce((a, b) => a + b, 0); // Calculate the sum of options
+            if (total === 0) return options; // Return if the sum is 0
+            return options.map(opt => opt / total); // Normalize each option
+        }
+
+        // Collapse a tile by selecting one of the possible tiles based on their probabilities
+        function collapseTile(x, y) {
+            const idx = index(x, y); // Get the linear index for (x, y)
+            const options = grid[idx]; // Get the options for the cell
+            const totalWeight = options.reduce((a, b) => a + b, 0); // Calculate the total weight of options
+            if (totalWeight === 0) return; // Return if no options are available
+
+            let r = Math.random() * totalWeight; // Generate a random number within the total weight
+            for (let i = 0; i < options.length; i++) {
+                r -= options[i]; // Subtract the option weight from the random number
+                if (r <= 0) { // If r is less than or equal to 0, select this option
+                    const chosenTile = TILES[i]; // Get the chosen tile type
+                    grid[idx] = new Float32Array(TILES.length).fill(0); // Reset the options for the cell
+                    grid[idx][i] = 1; // Set the chosen tile type to 1
+                    propagate(x, y, chosenTile); // Propagate constraints to neighbors
+                    break;
+                }
+            }
+        }
+
+        // Shuffle the directions array for unbiased propagation
+        function shuffleDirections() {
+            for (let i = directions.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1)); // Generate a random index
+                [directions[i], directions[j]] = [directions[j], directions[i]]; // Swap the directions
+            }
+        }
+
+        // Propagate the constraints to the neighbors after a tile is collapsed
+        function propagate(x, y, tile) {
+            const stack = [[x, y]]; // Initialize the stack with the current tile
+            while (stack.length > 0) {
+                const [cx, cy] = stack.pop(); // Get the current tile coordinates
+                const currentTile = TILES[grid[index(cx, cy)].findIndex(v => v === 1)]; // Get the current tile type
+                const allowedOptions = RULES[currentTile]; // Get the allowed options for the current tile type
+
+                if (!allowedOptions) continue; // Continue if no allowed options
+
+                shuffleDirections(); // Shuffle directions for unbiased propagation
+
+                for (const [dx, dy] of directions) {
+                    const nx = cx + dx; // Calculate the neighbor's x coordinate
+                    const ny = cy + dy; // Calculate the neighbor's y coordinate
+                    if (nx >= 0 && ny >= 0 && nx < GRID_SIZE && ny < GRID_SIZE) { // Check if the neighbor is within bounds
+                        const neighborIdx = index(nx, ny); // Get the neighbor's index
+                        const neighborOptions = grid[neighborIdx]; // Get the neighbor's options
+                        const newOptions = new Float32Array(neighborOptions.length); // Initialize new options
+                        let changed = false;
+
+                        // Adjust the neighbor's options based on the allowed options
+                        for (let i = 0; i < neighborOptions.length; i++) {
+                            if (neighborOptions[i] && allowedOptions[TILES[i]]) {
+                                newOptions[i] = allowedOptions[TILES[i]];
+                            } else if (neighborOptions[i]) {
+                                newOptions[i] = 0;
+                                changed = true;
+                            }
+                        }
+
+                        if (changed) {
+                            grid[neighborIdx] = normalizeOptions(newOptions); // Normalize the new options
+                            if (newOptions.reduce((a, b) => a + b, 0) === 1) { // If the neighbor is collapsed
+                                stack.push([nx, ny]); // Add the neighbor to the stack
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+
+        // Perform a depth-first search to initialize the grid
+        function depthFirstSearch() {
+            const stack = [];
+            const visited = new Set();
+            for (let i = 0; i < 5; i++) { // Start from a few random points
+                const startX = Math.floor(Math.random() * GRID_SIZE);
+                const startY = Math.floor(Math.random() * GRID_SIZE);
+                stack.push([startX, startY]); // Add the starting point to the stack
+                visited.add(index(startX, startY)); // Mark the starting point as visited
+            }
+
+            while (stack.length > 0) {
+                const [x, y] = stack.pop(); // Get the current tile
+                collapseTile(x, y); // Collapse the current tile
+
+                shuffleDirections(); // Shuffle directions for unbiased exploration
+
+                for (const [dx, dy] of directions) {
+                    const nx = x + dx; // Calculate the neighbor's x coordinate
+                    const ny = y + dy; // Calculate the neighbor's y coordinate
+                    if (nx >= 0 && ny >= 0 && nx < GRID_SIZE && ny < GRID_SIZE) { // Check if the neighbor is within bounds
+                        const neighborIdx = index(nx, ny); // Get the neighbor's index
+                        if (!visited.has(neighborIdx)) { // Check if the neighbor has been visited
+                            stack.push([nx, ny]); // Add the neighbor to the stack
+                            visited.add(neighborIdx); // Mark the neighbor as visited
+                        }
+                    }
+                }
+            }
+        }
+
+        // Shuffle an array in place
+        function shuffleArray(array) {
+            for (let i = array.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1)); // Generate a random index
+                [array[i], array[j]] = [array[j], array[i]]; // Swap the elements
+            }
+        }
+
+        // Perform a convolution step to further refine the grid
+        function convolveStep() {
+            let changesMade = false;
+            shuffleArray(indices); // Shuffle indices for unbiased processing
+
+            indices.forEach(([x, y]) => {
+                const idx = index(x, y); // Get the cell index
+                const cell = grid[idx]; // Get the cell options
+                if (cell.reduce((a, b) => a + b, 0) === 1) return; // Skip if the cell is collapsed
+
+                let neighborCounts = new Float32Array(TILES.length);
+                shuffleDirections(); // Shuffle directions for unbiased neighbor counting
+
+                // Count the occurrences of each tile type in the neighbors
+                for (const [dx, dy] of directions) {
+                    const nx = x + dx; // Calculate the neighbor's x coordinate
+                    const ny = y + dy; // Calculate the neighbor's y coordinate
+                    if (nx >= 0 && ny >= 0 && nx < GRID_SIZE && ny < GRID_SIZE) { // Check if the neighbor is within bounds
+                        const neighbor = grid[index(nx, ny)]; // Get the neighbor's options
+                        for (let i = 0; i < neighbor.length; i++) {
+                            neighborCounts[i] += neighbor[i]; // Increment the count for the tile type
+                        }
+                    }
+                }
+
+                // Calculate the weighted options based on the neighbor counts
+                let weightedOptions = cell.map((weight, i) => ({
+                    tile: i,
+                    weight: weight * (neighborCounts[i] + 1) // Increment the weight
+                }));
+
+                weightedOptions.sort((a, b) => b.weight - a.weight); // Sort the options by weight
+
+                if (weightedOptions[0].weight === 0) { // Check if the highest weight is 0
+                    grid[idx] = new Float32Array(TILES.length).fill(0); // Reset the options
+                    grid[idx][TILES.indexOf(DEFAULT_TILE)] = 1; // Set the default tile type
+                    return;
+                }
+
+                const newTileIdx = weightedOptions[0].tile; // Get the new tile index
+                const newTileOptions = new Float32Array(TILES.length).fill(0); // Initialize the new options
+                newTileOptions[newTileIdx] = 1; // Set the new tile type
+
+                if (!cell.every((v, i) => v === newTileOptions[i])) { // Check if the options have changed
+                    changesMade = true; // Set the flag to true
+                }
+
+                grid[idx] = newTileOptions; // Update the grid
+            });
+
+            return changesMade; // Return the flag
+        }
+
+        // Initialize the grid by setting probabilities and collapsing some tiles
+        function initializeGrid() {
+            initializeProbabilities(); // Initialize probabilities
+            depthFirstSearch(); // Perform a depth-first search
+            for (let i = 0; i < 10; i++) { // Perform convolution steps
+                if (!convolveStep()) break; // Break if no changes are made
+            }
+        }
+
+        // Render the grid onto the canvas
+        function renderGrid() {
+            const canvas = document.getElementById('mapCanvas');
+            const ctx = canvas.getContext('2d');
+            canvas.width = GRID_SIZE * TILE_RESOLUTION; // Set the canvas width
+            canvas.height = GRID_SIZE * TILE_RESOLUTION; // Set the canvas height
+
+            for (let x = 0; x < GRID_SIZE; x++) {
+                for (let y = 0; y < GRID_SIZE; y++) {
+                    const idx = index(x, y); // Get the cell index
+                    const tileType = TILES[grid[idx].findIndex(v => v === 1)]; // Get the tile type
+                    ctx.fillStyle = TILE_COLORS[tileType]; // Set the fill color
+                    ctx.fillRect(x * TILE_RESOLUTION, y * TILE_RESOLUTION, TILE_RESOLUTION, TILE_RESOLUTION); // Draw the tile
+                }
+            }
+        }
+
+        // Class to generate Perlin noise
+        class PerlinNoise {
+            constructor() {
+                this.grad3 = [
+                    [1, 1, 0], [-1, 1, 0], [1, -1, 0], [-1, -1, 0],
+                    [1, 0, 1], [-1, 0, 1], [1, 0, -1], [-1, 0, -1],
+                    [0, 1, 1], [0, -1, 1], [0, 1, -1], [0, -1, -1]
+                ];
+                this.p = [];
+                for (let i = 0; i < 256; i++) {
+                    this.p[i] = Math.floor(Math.random() * 256); // Generate random permutation
+                }
+                this.perm = [];
+                for (let i = 0; i < 512; i++) {
+                    this.perm[i] = this.p[i & 255]; // Repeat the permutation
+                }
+            }
+
+            // Dot product of gradient vector and distance vector
+            dot(g, x, y, z) {
+                return g[0] * x + g[1] * y + g[2] * z;
+            }
+
+            // Linear interpolation
+            mix(a, b, t) {
+                return (1.0 - t) * a + t * b;
+            }
+
+            // Fade function to smooth the transition
+            fade(t) {
+                return t * t * t * (t * (t * 6 - 15) + 10);
+            }
+
+            // Generate Perlin noise value for coordinates (x, y, z)
+            noise(x, y, z) {
+                let X = Math.floor(x) & 255;
+                let Y = Math.floor(y) & 255;
+                let Z = Math.floor(z) & 255;
+
+                x -= Math.floor(x);
+                y -= Math.floor(y);
+                z -= Math.floor(z);
+
+                let u = this.fade(x);
+                let v = this.fade(y);
+                let w = this.fade(z);
+
+                let A = this.perm[X] + Y;
+                let AA = this.perm[A] + Z;
+                let AB = this.perm[A + 1] + Z;
+                let B = this.perm[X + 1] + Y;
+                let BA = this.perm[B] + Z;
+                let BB = this.perm[B + 1] + Z;
+
+                return this.mix(this.mix(this.mix(this.dot(this.grad3[this.perm[AA] % 12], x, y, z),
+                    this.dot(this.grad3[this.perm[BA] % 12], x - 1, y, z), u),
+                    this.mix(this.dot(this.grad3[this.perm[AB] % 12], x, y - 1, z),
+                    this.dot(this.grad3[this.perm[BB] % 12], x - 1, y - 1, z), u), v),
+                    this.mix(this.mix(this.dot(this.grad3[this.perm[AA + 1] % 12], x, y, z - 1),
+                    this.dot(this.grad3[this.perm[BA + 1] % 12], x - 1, y, z - 1), u),
+                    this.mix(this.dot(this.grad3[this.perm[AB + 1] % 12], x, y - 1, z - 1),
+                    this.dot(this.grad3[this.perm[BB + 1] % 12], x - 1, y - 1, z - 1), u), v), w);
+            }
+        }
+
+
+        // Calculate the entropy of the options in a cell (unused)
+        function calculateEntropy(options) {
+            const totalWeight = options.reduce((a, b) => a + b, 0); // Calculate the total weight
+            if (totalWeight === 0) return Infinity; // Return infinity if the total weight is 0
+            return -options.reduce((sum, weight) => {
+                if (weight === 0) return sum; // Skip if the weight is 0
+                const p = weight / totalWeight; // Calculate the probability
+                return sum + p * Math.log(p); // Calculate the entropy
+            }, 0);
+        }
+
+
+        // Initialize and render the grid when the script loads
+        initializeGrid(); // Initialize the grid
+        renderGrid(); // Render the grid
+    </script>
+</body>
+</html>
