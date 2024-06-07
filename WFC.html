@@ -59,7 +59,7 @@
         // Define the rules for tile adjacency probabilities
         const RULES = {
             'ocean': { 'ocean': 0.99, 'beach': 0.01 },
-            'freshwater': { 'freshwater': 0.19, 'beach': 0.6, 'ocean': 0.01, 'forest': 0.1, 'grass': 0.1  },
+            'freshwater': { 'freshwater': 0.5, 'beach': 0.29, 'ocean': 0.01, 'forest': 0.1, 'grass': 0.1  },
             'beach': { 'ocean': 0.01, 'beach': 0.3, 'forest': 0.05, 'freshwater': 0.01, 'grass': 0.25 },
             'grass': { 'beach': 0.1,  'mountain': 0.05, 'grass': 0.45,  'forest': 0.15, 'hill': 0.15, 'freshwater': 0.1 },
             'forest': { 'beach': 0.01,  'mountain': 0.24, 'grass': 0.05, 'forest': 0.45, 'hill': 0.25, 'freshwater': 0.1 },
