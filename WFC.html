@@ -42,6 +42,8 @@
         let TILE_RESOLUTION = GRID_SIZE / 50; // Each tile will be 4x4 pixels
         const DEFAULT_TILE = 'grass'; // Default tile type
 
+        const HEIGHT_MODIFIER = 1.5;
+
         // Define the colors for each tile type
         const TILE_COLORS = {
             'ocean': 'blue',
@@ -49,7 +51,7 @@
             'beach': 'yellow',
             'grass': 'green',
             'forest': 'darkgreen',
-            'hill': 'brown',
+            'hill': 'saddlebrown',
             'mountain': 'gray',
             'glacier': 'lightblue'
         };
@@ -57,7 +59,7 @@
         // Define the rules for tile adjacency probabilities
         const RULES = {
             'ocean': { 'ocean': 0.99, 'beach': 0.01 },
-            'freshwater': { 'freshwater': 0.19, 'beach': 0.7, 'ocean': 0.01, 'grass': 0.1  },
+            'freshwater': { 'freshwater': 0.19, 'beach': 0.6, 'ocean': 0.01, 'forest': 0.1, 'grass': 0.1  },
             'beach': { 'ocean': 0.01, 'beach': 0.3, 'forest': 0.05, 'freshwater': 0.01, 'grass': 0.25 },
             'grass': { 'beach': 0.1,  'mountain': 0.05, 'grass': 0.45,  'forest': 0.15, 'hill': 0.15, 'freshwater': 0.1 },
             'forest': { 'beach': 0.01,  'mountain': 0.24, 'grass': 0.05, 'forest': 0.45, 'hill': 0.25, 'freshwater': 0.1 },
@@ -68,14 +70,14 @@
 
         // Define the height ranges for each tile type
         const TILE_HEIGHT_RANGES = {
-            'ocean': { min: -1.0, max: 0.0 },
+            'ocean': { min: -1.0, max: -0.1 },
+            'freshwater': { min: -0.15, max: 0.8 }, // Freshwater can appear at any height
             'beach': { min: 0.0, max: 0.2 },
             'grass': { min: 0.05, max: 0.4 },
             'hill': { min: 0.6, max: 0.65 },
             'forest': { min: 0.05, max: 0.5 },
             'mountain': { min: 0.6, max: 0.9 },
             'glacier': { min: 0.75, max: 1.0 },
-            'freshwater': { min: -1.0, max: 0.8 } // Freshwater can appear at any height
         };
 
         // Get the list of all tile types
@@ -180,6 +182,8 @@
         }
 
         // Propagate the constraints to the neighbors after a tile is collapsed
+        
+        // Propagate the constraints to the neighbors after a tile is collapsed
         function propagate(x, y, tile) {
             const stack = [[x, y]]; // Initialize the stack with the current tile
             while (stack.length > 0) {
@@ -200,12 +204,20 @@
                         const newOptions = new Float32Array(neighborOptions.length); // Initialize new options
                         let changed = false;
 
-                        // Adjust the neighbor's options based on the allowed options
+                        // Adjust the neighbor's options based on the allowed options and initial probabilities
                         for (let i = 0; i < neighborOptions.length; i++) {
-                            if (neighborOptions[i] && allowedOptions[TILES[i]]) {
-                                newOptions[i] = allowedOptions[TILES[i]];
-                            } else if (neighborOptions[i]) {
+                            const initialProbability = neighborOptions[i] * (HEIGHT_MODIFIER ? HEIGHT_MODIFIER : 1);
+                            const ruleProbability = allowedOptions[TILES[i]] || 0;
+
+                            if (initialProbability && ruleProbability) {
+                                newOptions[i] = ruleProbability * (HEIGHT_MODIFIER ? (1 - HEIGHT_MODIFIER * initialProbability) : 1);
+                            //} else if (initialProbability) {
+                            //    newOptions[i] = ruleProbability; // Apply a small weight if no rule applies
+                            } else {
                                 newOptions[i] = 0;
+                            }
+
+                            if (neighborOptions[i] !== newOptions[i]) {
                                 changed = true;
                             }
                         }
@@ -221,8 +233,7 @@
             }
         }
 
-
-        // Perform a depth-first search to initialize the grid
+        // Perform a smoothed depth-first search to initialize the grid
         function depthFirstSearch() {
             const stack = [];
             const visited = new Set();
@@ -236,6 +247,37 @@
             while (stack.length > 0) {
                 const [x, y] = stack.pop(); // Get the current tile
                 collapseTile(x, y); // Collapse the current tile
+
+                // Integrate convolution step after collapsing the tile
+                const idx = index(x, y); // Get the cell index
+                const cell = grid[idx]; // Get the cell options
+               
+                if (cell.reduce((a, b) => a + b, 0) !== 1) { // If the cell is not collapsed, skip
+                    let neighborCounts = new Float32Array(TILES.length);
+                    let totalWeight = 0;
+
+                    // Count the occurrences of each tile type in the neighbors
+                    for (const [dx, dy] of directions) {
+                        const nx = x + dx; // Calculate the neighbor's x coordinate
+                        const ny = y + dy; // Calculate the neighbor's y coordinate
+                        if (nx >= 0 && ny >= 0 && nx < GRID_SIZE && ny < GRID_SIZE) { // Check if the neighbor is within bounds
+                            const neighbor = grid[index(nx, ny)]; // Get the neighbor's options
+                            for (let i = 0; i < neighbor.length; i++) {
+                                neighborCounts[i] += neighbor[i]; // Increment the count for the tile type
+                            }
+                            totalWeight++;
+                        }
+                    }
+
+                    if (totalWeight > 0) {
+                        // Calculate the weighted average of neighbor probabilities
+                        let newOptions = neighborCounts.map(count => count / totalWeight);
+
+                        // Normalize the new options
+                        newOptions = normalizeOptions(new Float32Array(newOptions));
+                        grid[idx] = newOptions; // Update the grid with new smoothed probabilities
+                    }
+                }
 
                 shuffleDirections(); // Shuffle directions for unbiased exploration
 
@@ -261,66 +303,10 @@
             }
         }
 
-        // Perform a convolution step to further refine the grid
-        function convolveStep() {
-            let changesMade = false;
-            shuffleArray(indices); // Shuffle indices for unbiased processing
-
-            indices.forEach(([x, y]) => {
-                const idx = index(x, y); // Get the cell index
-                const cell = grid[idx]; // Get the cell options
-                if (cell.reduce((a, b) => a + b, 0) === 1) return; // Skip if the cell is collapsed
-
-                let neighborCounts = new Float32Array(TILES.length);
-                shuffleDirections(); // Shuffle directions for unbiased neighbor counting
-
-                // Count the occurrences of each tile type in the neighbors
-                for (const [dx, dy] of directions) {
-                    const nx = x + dx; // Calculate the neighbor's x coordinate
-                    const ny = y + dy; // Calculate the neighbor's y coordinate
-                    if (nx >= 0 && ny >= 0 && nx < GRID_SIZE && ny < GRID_SIZE) { // Check if the neighbor is within bounds
-                        const neighbor = grid[index(nx, ny)]; // Get the neighbor's options
-                        for (let i = 0; i < neighbor.length; i++) {
-                            neighborCounts[i] += neighbor[i]; // Increment the count for the tile type
-                        }
-                    }
-                }
-
-                // Calculate the weighted options based on the neighbor counts
-                let weightedOptions = cell.map((weight, i) => ({
-                    tile: i,
-                    weight: weight * (neighborCounts[i] + 1) // Increment the weight
-                }));
-
-                weightedOptions.sort((a, b) => b.weight - a.weight); // Sort the options by weight
-
-                if (weightedOptions[0].weight === 0) { // Check if the highest weight is 0
-                    grid[idx] = new Float32Array(TILES.length).fill(0); // Reset the options
-                    grid[idx][TILES.indexOf(DEFAULT_TILE)] = 1; // Set the default tile type
-                    return;
-                }
-
-                const newTileIdx = weightedOptions[0].tile; // Get the new tile index
-                const newTileOptions = new Float32Array(TILES.length).fill(0); // Initialize the new options
-                newTileOptions[newTileIdx] = 1; // Set the new tile type
-
-                if (!cell.every((v, i) => v === newTileOptions[i])) { // Check if the options have changed
-                    changesMade = true; // Set the flag to true
-                }
-
-                grid[idx] = newTileOptions; // Update the grid
-            });
-
-            return changesMade; // Return the flag
-        }
-
         // Initialize the grid by setting probabilities and collapsing some tiles
         function initializeGrid() {
             initializeProbabilities(); // Initialize probabilities
             depthFirstSearch(); // Perform a depth-first search
-            for (let i = 0; i < 10; i++) { // Perform convolution steps
-                if (!convolveStep()) break; // Break if no changes are made
-            }
         }
 
         // Render the grid onto the canvas
@@ -419,9 +405,11 @@
 
 
         // Initialize and render the grid when the script loads
-        const makeAndRender = () => {    
+        const makeAndRender = () => {
+            console.time("WFC");    
             initializeGrid(); // Initialize the grid
             renderGrid(); // Render the grid
+            console.timeEnd("WFC");
         }
 
         const genbutton = document.getElementById('regen');
