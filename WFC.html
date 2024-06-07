@@ -4,6 +4,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Wave Function Collapse Example</title>
     <style>
+        body {
+            background-color: black;
+            color:white;
+        }
         canvas {
             display: block;
             margin: 0 auto;
@@ -11,6 +15,13 @@
     </style>
 </head>
 <body>
+    <button id="regen">Regenerate</button>
+    Terrain Scaling:
+    <input id="gscale" type="number" min="2" max="10000" step="1" value="50" />
+    Grid Size (square):
+    <input id="gsize" type="number" min="10" max="10000" step="10" value="200" />
+    Tile Resolution (px):
+    <input id="gres" type="number" min="1" max="10000" step="1" value="4" />
     <canvas id="mapCanvas"></canvas>
     <script>
         /*
@@ -26,9 +37,9 @@
         */
 
         // Define grid size and tile resolution
-        const GRID_SIZE = 200; // The grid will be 200x200 tiles
-        const GRID_SCALING = 50; //must be greater than 1, changes the size of the seeded perlin noise
-        const TILE_RESOLUTION = GRID_SIZE / 50; // Each tile will be 4x4 pixels
+        let GRID_SIZE = 200; // The grid will be 200x200 tiles
+        let GRID_SCALING = 50; //must be greater than 1, changes the size of the seeded perlin noise
+        let TILE_RESOLUTION = GRID_SIZE / 50; // Each tile will be 4x4 pixels
         const DEFAULT_TILE = 'grass'; // Default tile type
 
         // Define the colors for each tile type
@@ -408,8 +419,44 @@
 
 
         // Initialize and render the grid when the script loads
-        initializeGrid(); // Initialize the grid
-        renderGrid(); // Render the grid
+        const makeAndRender = () => {    
+            initializeGrid(); // Initialize the grid
+            renderGrid(); // Render the grid
+        }
+
+        const genbutton = document.getElementById('regen');
+        const sizeInp = document.getElementById('gsize');
+        const scaleInp = document.getElementById('gscale');
+        const resInp = document.getElementById('gres');
+
+        sizeInp.onchange = (ev) => {
+            let val = parseInt(ev.target.value);
+            if (val < 2) val = 2;
+            GRID_SIZE = val;
+            makeAndRender();
+        }
+
+        scaleInp.onchange = (ev) => {
+            let val = parseInt(ev.target.value);
+            if (val < 1) val = 1;
+            GRID_SCALING = val;
+            makeAndRender();
+        }
+
+        resInp.onchange = (ev) => {
+            let val = parseInt(ev.target.value);
+            if (val < 1) val = 1;
+            TILE_RESOLUTION = val;
+            makeAndRender();
+        }
+
+        genbutton.onclick = (ev) => {
+            makeAndRender();
+        }
+
+        makeAndRender();
+
+
     </script>
 </body>
 </html>
