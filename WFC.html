@@ -25,6 +25,12 @@
         6. Render the final grid onto a canvas.
         */
 
+        // Define grid size and tile resolution
+        const GRID_SIZE = 200; // The grid will be 200x200 tiles
+        const GRID_SCALING = 50; //must be greater than 1, changes the size of the seeded perlin noise
+        const TILE_RESOLUTION = GRID_SIZE / 50; // Each tile will be 4x4 pixels
+        const DEFAULT_TILE = 'grass'; // Default tile type
+
         // Define the colors for each tile type
         const TILE_COLORS = {
             'ocean': 'blue',
@@ -51,7 +57,7 @@
         const TILE_HEIGHT_RANGES = {
             'ocean': { min: -1.0, max: 0.0 },
             'beach': { min: 0.0, max: 0.3 },
-            'grass': { min: 0.3, max: 0.6 },
+            'grass': { min: 0.05, max: 0.6 },
             'hill': { min: 0.6, max: 0.7 },
             'mountain': { min: 0.7, max: 0.9 },
             'glacier': { min: 0.75, max: 1.0 },
@@ -61,10 +67,6 @@
         // Get the list of all tile types
         const TILES = Object.keys(TILE_COLORS);
 
-        // Define grid size and tile resolution
-        const GRID_SIZE = 200; // The grid will be 200x200 tiles
-        const TILE_RESOLUTION = 4; // Each tile will be 4x4 pixels
-        const DEFAULT_TILE = 'grass'; // Default tile type
 
         // Define directions for neighbors (8 directions)
         const directions = [
@@ -101,7 +103,8 @@
             const perlin = new PerlinNoise(); // Create a new PerlinNoise instance
             for (let x = 0; x < GRID_SIZE; x++) {
                 for (let y = 0; y < GRID_SIZE; y++) {
-                    const value = perlin.noise(x / 50, y / 50, 0); // Generate Perlin noise value
+                    const scaling = GRID_SCALING > 1 ? GRID_SCALING : 10;
+                    const value = perlin.noise(x / scaling, y / scaling, 0); // Generate Perlin noise value
 
                     const idx = index(x, y); // Get the linear index for (x, y)
                     const options = new Float32Array(TILES.length).fill(1); // Initialize options with equal probabilities
