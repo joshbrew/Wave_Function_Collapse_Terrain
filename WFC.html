@@ -42,7 +42,7 @@
         let TILE_RESOLUTION = GRID_SIZE / 50; // Each tile will be 4x4 pixels
         const DEFAULT_TILE = 'grass'; // Default tile type
 
-        const HEIGHT_MODIFIER = 1.5;
+        const HEIGHT_MODIFIER = 2;
 
         // Define the colors for each tile type
         const TILE_COLORS = {
@@ -206,11 +206,11 @@
 
                         // Adjust the neighbor's options based on the allowed options and initial probabilities
                         for (let i = 0; i < neighborOptions.length; i++) {
-                            const initialProbability = neighborOptions[i] * (HEIGHT_MODIFIER ? HEIGHT_MODIFIER : 1);
+                            const initialProbability = neighborOptions[i] || 0;
                             const ruleProbability = allowedOptions[TILES[i]] || 0;
 
                             if (initialProbability && ruleProbability) {
-                                newOptions[i] = ruleProbability * (HEIGHT_MODIFIER ? (1 - HEIGHT_MODIFIER * initialProbability) : 1);
+                                newOptions[i] = ruleProbability + ruleProbability * (HEIGHT_MODIFIER * initialProbability);
                             //} else if (initialProbability) {
                             //    newOptions[i] = ruleProbability; // Apply a small weight if no rule applies
                             } else {
