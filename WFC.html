@@ -42,7 +42,7 @@
         let TILE_RESOLUTION = GRID_SIZE / 50; // Each tile will be 4x4 pixels
         const DEFAULT_TILE = 'grass'; // Default tile type
 
-        const HEIGHT_MODIFIER = 2;
+        const HEIGHT_MODIFIER = 5;
 
         // Define the colors for each tile type
         const TILE_COLORS = {
@@ -183,6 +183,8 @@
 
         // Propagate the constraints to the neighbors after a tile is collapsed
         
+        let mod = HEIGHT_MODIFIER + 1;
+
         // Propagate the constraints to the neighbors after a tile is collapsed
         function propagate(x, y, tile) {
             const stack = [[x, y]]; // Initialize the stack with the current tile
@@ -210,7 +212,7 @@
                             const ruleProbability = allowedOptions[TILES[i]] || 0;
 
                             if (initialProbability && ruleProbability) {
-                                newOptions[i] = ruleProbability + ruleProbability * (HEIGHT_MODIFIER * initialProbability);
+                                newOptions[i] = ruleProbability - (ruleProbability * ((1 - mod) * initialProbability));
                             //} else if (initialProbability) {
                             //    newOptions[i] = ruleProbability; // Apply a small weight if no rule applies
                             } else {
