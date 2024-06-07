@@ -37,6 +37,7 @@
             'freshwater': 'royalblue',
             'beach': 'yellow',
             'grass': 'green',
+            'forest': 'darkgreen',
             'hill': 'brown',
             'mountain': 'gray',
             'glacier': 'lightblue'
@@ -45,23 +46,25 @@
         // Define the rules for tile adjacency probabilities
         const RULES = {
             'ocean': { 'ocean': 0.99, 'beach': 0.01 },
-            'freshwater': { 'freshwater': 0.19, 'beach': 0.8, 'ocean': 0.01 },
-            'beach': { 'ocean': 0.01, 'beach': 0.3, 'freshwater': 0.01, 'grass': 0.3 },
-            'grass': { 'beach': 0.1, 'grass': 0.5, 'hill': 0.3, 'freshwater': 0.1 },
-            'hill': { 'grass': 0.4, 'hill': 0.4, 'mountain': 0.2 },
-            'mountain': { 'hill': 0.5, 'mountain': 0.4, 'glacier': 0.1 },
+            'freshwater': { 'freshwater': 0.19, 'beach': 0.7, 'ocean': 0.01, 'grass': 0.1  },
+            'beach': { 'ocean': 0.01, 'beach': 0.3, 'forest': 0.05, 'freshwater': 0.01, 'grass': 0.25 },
+            'grass': { 'beach': 0.1,  'mountain': 0.05, 'grass': 0.45,  'forest': 0.15, 'hill': 0.15, 'freshwater': 0.1 },
+            'forest': { 'beach': 0.01,  'mountain': 0.24, 'grass': 0.05, 'forest': 0.45, 'hill': 0.25, 'freshwater': 0.1 },
+            'hill': { 'grass': 0.2, 'forest': 0.2, 'hill': 0.4, 'mountain': 0.2 },
+            'mountain': { 'hill': 0.3, 'grass': 0.01, 'forest': 0.1, 'mountain': 0.49, 'glacier': 0.1 },
             'glacier': { 'mountain': 0.7, 'glacier': 0.3 }
         };
 
         // Define the height ranges for each tile type
         const TILE_HEIGHT_RANGES = {
             'ocean': { min: -1.0, max: 0.0 },
-            'beach': { min: 0.0, max: 0.3 },
-            'grass': { min: 0.05, max: 0.6 },
-            'hill': { min: 0.6, max: 0.7 },
-            'mountain': { min: 0.7, max: 0.9 },
+            'beach': { min: 0.0, max: 0.2 },
+            'grass': { min: 0.05, max: 0.4 },
+            'hill': { min: 0.6, max: 0.65 },
+            'forest': { min: 0.05, max: 0.5 },
+            'mountain': { min: 0.6, max: 0.9 },
             'glacier': { min: 0.75, max: 1.0 },
-            'freshwater': { min: -1.0, max: 1.0 } // Freshwater can appear at any height
+            'freshwater': { min: -1.0, max: 0.8 } // Freshwater can appear at any height
         };
 
         // Get the list of all tile types
@@ -104,7 +107,7 @@
             for (let x = 0; x < GRID_SIZE; x++) {
                 for (let y = 0; y < GRID_SIZE; y++) {
                     const scaling = GRID_SCALING > 1 ? GRID_SCALING : 10;
-                    const value = perlin.noise(x / scaling, y / scaling, 0); // Generate Perlin noise value
+                    const value = perlin.noise(x / scaling, y / scaling, 0) + 0.1; // Generate Perlin noise value
 
                     const idx = index(x, y); // Get the linear index for (x, y)
                     const options = new Float32Array(TILES.length).fill(1); // Initialize options with equal probabilities
